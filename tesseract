@@ -1,0 +1,88 @@
+import numpy as np  
+from itertools import product
+import math
+
+class Tesseract:
+	def __init__(self,scale=150,width=800,height=600):
+		self.vertices = self.generate_vertices()
+		self.edges = self.generate_edges()
+		self.scale_base = scale
+		self.pulse_phase = 0.0
+		self.width = width
+		self.height = height
+		self.stretch_phase = 0.0
+	
+
+	def generate_vertices(self):
+		"""Create the 16 4D vertices"""
+		return [np.array(p ,dtype=float) for p in product([-1,1],repeat=4)]
+
+	def generate_edges(self):
+		edges = []
+		for i in range(len(self.vertices)):
+			for j in range(i + 1, len(self.vertices)):
+				if np.sum(self.vertices[i] != self.vertices[j]) == 1:
+					edges.append((i,j))
+		return edges
+
+	def rotate_vector(self, v,angle,axis1,axis2):
+		"""Rotate the  tesseract around the (axis1,axis2) hyperplane"""
+		cos_a = math.cos(angle)
+		sin_a = math.sin(angle)
+
+		#Identitiy matrix
+		rot_matrix = np.identity(4)
+		rot_matrix[axis1,axis1] = cos_a
+		rot_matrix[axis1,axis2] = -sin_a
+		rot_matrix[axis2,axis1] = sin_a
+		rot_matrix[axis2,axis2] = cos_a
+
+		return rot_matrix @ v
+
+	def rotate_all(self,angle,axis1,axis2):
+		self.vertices = [self.rotate_vector(v, angle, axis1, axis2) for v in self.vertices]
+
+	#4D to 3D: divide xyz by (distance = w)
+	def project_4d_to_3d(self,point4d,distance=2):
+		w = point4d[3]
+		factor = 1 / (distance - w) if (distance - w) != 0 else 1e-5
+		return point4d[:3] * factor
+
+	#3D to 2D: divide xy by (distance -2 )
+	def project_3d_to_2d(self,point3d,distance=2):
+		z = point3d[2]
+		factor = 1 / (distance - z) if (distance - z) != 0 else 1e-5
+		return np.array([point3d[0] * factor, point3d[1] * factor])
+
+	def apply_stretching(self,point):
+		#create a sinusoidal stretch factor
+		self.stretch_phase += 0.001
+		stretch_factor = 1.0 + 0.3 * math.sin(self.stretch_phase)
+
+		stretch_matrix = np.identity(4)
+		stretch_matrix[3][3] = stretch_factor
+
+		return stretch_matrix @ point
+
+	def get_projected_points(self):
+		points = []
+		for v in self.vertices:
+			#stretch it in 4d space
+			stretched = self.apply_stretching(v)
+
+			#rotate in 4d space
+			rotated_4d = self.rotate_vector(stretched,angle=0.01,axis1=0,axis2=3)
+
+			#project 4d to 3d to 2d
+			projected_3d = self.project_4d_to_3d(rotated_4d)
+			projected_2d = self.project_3d_to_2d(projected_3d)
+
+			#pulsing scale
+			self.pulse_phase += 0.005
+			scale = self.scale_base + math.sin(self.pulse_phase) * 15
+
+			#map to screen
+			x = int(projected_2d[0] * scale + self.width//2)
+			y = int(projected_2d[1] * scale) + self.height//2
+			points.append((x,y))
+		return points
